@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-journal",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DeepSeek Harness Web plugin: a right-sidebar work journal that groups a session's turns into work items (status, result, open items, decisions, changed files) and jumps to any turn in the chat, plus a header chip with the current phase.",
   "keywords": [
     "dsh",

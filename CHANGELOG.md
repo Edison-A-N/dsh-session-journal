@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 (2026-11-05)
+
+- Work item cards start collapsed; click a card to expand it.
+
 ## 0.1.1 (2026-11-05)
 
 - Open items no longer include the agent's own follow-up checks ("confirm

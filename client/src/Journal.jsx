@@ -365,8 +365,8 @@ export function JournalBody(props) {
       <section className="dsj-section">
         <h3 className="dsj-h">{t('items.title')}<span className="dsj-dim">{t('items.count', { n: items.length })}</span></h3>
         <ol className="dsj-items">
-          {items.map((item, i) => (
-            <Item key={item.id} journal={value} item={item} defaultOpen={i === 0 || item.status === 'active' || item.status === 'blocked'} onOpen={openFile} />
+          {items.map((item) => (
+            <Item key={item.id} journal={value} item={item} defaultOpen={false} onOpen={openFile} />
           ))}
         </ol>
       </section>
