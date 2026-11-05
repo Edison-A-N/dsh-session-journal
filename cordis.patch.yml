@@ -1,0 +1,7 @@
+# dsh-session-journal bundle patch: one loader row activating the host half
+# (the login-fenced /plugins/session-journal/api/journal route and the
+# background summarizer). The browser half is picked up by the client-modules
+# scan through package.json dsh.client.
+- insert:
+    - id: session-journal
+      name: 'dsh-session-journal'
