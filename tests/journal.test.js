@@ -558,3 +558,209 @@ test('research detection covers generic MCP lookup tools; skills count as review
   const kinds = collect(b.events).turns[0].steps.map((s) => s.kind)
   assert.deepEqual(kinds, ['research', 'review', 'other'])
 })
+
+/** Fake clock + timers: advance(ms) fires due timers in order. */
+function fakeTime() {
+  let t = 0
+  const timers = new Map()
+  let next = 1
+  return {
+    now: () => t,
+    setTimer: (fn, ms) => { const h = next++; timers.set(h, { at: t + ms, fn }); return h },
+    clearTimer: (h) => { timers.delete(h) },
+    pending: () => timers.size,
+    async advance(ms) {
+      const end = t + ms
+      for (;;) {
+        const due = [...timers].filter(([, v]) => v.at <= end).sort((x, y) => x[1].at - y[1].at)[0]
+        if (due === undefined) break
+        timers.delete(due[0]); t = due[1].at; due[1].fn()
+        for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r))
+      }
+      t = end
+    },
+  }
+}
+
+test('auto-updater follows only the session whose turn ended, until nothing is in progress', async () => {
+  const { createAutoUpdater } = await import('../lib/autoupdate.js')
+  const clock = fakeTime()
+  const reads = []
+  let work = 2 // reads that still report work in progress
+  const updater = createAutoUpdater({
+    read: async (id, lang, options) => { reads.push([id, lang, options?.fresh]); return work-- > 0 ? { pending: 1 } : { pending: 0, outlining: false, retrying: 0 } },
+    ...clock,
+  })
+  updater.onSessionEvent({ id: 's1', header: {} }, { type: 'assistant/message' })
+  updater.onSessionEvent({ id: 'child', header: { delegationDepth: 1 } }, { type: 'turn/end' })
+  assert.equal(clock.pending(), 0)
+  updater.onSessionEvent({ id: 's1', header: { delegationDepth: 0 } }, { type: 'turn/end' })
+  updater.onSessionEvent({ id: 's1', header: {} }, { type: 'turn/end' }) // debounced
+  await clock.advance(60_000)
+  assert.deepEqual(reads, [['s1', 'zh', true], ['s1', 'zh', true], ['s1', 'zh', true]])
+  assert.deepEqual(updater.following(), []) // stopped once idle
+})
+
+test('auto-updater keeps polling through a failed summary until its retry lands, and gives up after maxFollowMs', async () => {
+  const { createAutoUpdater } = await import('../lib/autoupdate.js')
+  const clock = fakeTime()
+  let reads = 0
+  // retrying stays > 0 for 60 s, as when a summary failed and waits for its back-off.
+  const updater = createAutoUpdater({ read: async () => { reads++; return { pending: 0, retrying: clock.now() < 62_000 ? 1 : 0 } }, ...clock })
+  updater.onSessionEvent({ id: 's1', header: {} }, { type: 'turn/end' })
+  await clock.advance(70_000)
+  assert.ok(reads >= 12, `polled through the back-off (${reads} reads)`)
+  assert.deepEqual(updater.following(), [])
+  // A session whose state never changes is dropped after maxIdleMs.
+  const stuck = createAutoUpdater({ read: async () => ({ pending: 1 }), maxIdleMs: 20_000, ...clock })
+  stuck.onSessionEvent({ id: 's2', header: {} }, { type: 'turn/end' })
+  await clock.advance(40_000)
+  assert.deepEqual(stuck.following(), [])
+  // Progress keeps a long backfill followed past maxIdleMs, up to maxFollowMs.
+  let left = 30
+  const backfill = createAutoUpdater({ read: async () => ({ pending: left > 0 ? left-- : 0 }), maxIdleMs: 20_000, maxFollowMs: 120_000, ...clock })
+  backfill.onSessionEvent({ id: 's3', header: {} }, { type: 'turn/end' })
+  await clock.advance(100_000)
+  assert.equal(left, 10) // 20 polls of 5 s, every one with progress
+  assert.deepEqual(backfill.following(), ['s3'])
+  await clock.advance(60_000)
+  assert.deepEqual(backfill.following(), []) // total cap reached
+})
+
+test('auto-updater: a turn end during a slow read reads again instead of losing the follow', async () => {
+  const { createAutoUpdater } = await import('../lib/autoupdate.js')
+  const clock = fakeTime()
+  const calls = []
+  let release
+  const updater = createAutoUpdater({
+    read: (id, lang) => {
+      calls.push(calls.length + 1)
+      if (calls.length === 1) return new Promise((r) => { release = () => r({ pending: 0 }) }) // slow, sees the old log
+      return Promise.resolve(calls.length === 2 ? { pending: 1 } : { pending: 0 })
+    },
+    ...clock,
+  })
+  updater.onSessionEvent({ id: 's1', header: {} }, { type: 'turn/end' })
+  await clock.advance(1_500) // read 1 starts and hangs
+  updater.onSessionEvent({ id: 's1', header: {} }, { type: 'turn/end' })
+  await clock.advance(5_000)
+  assert.equal(calls.length, 1) // no second concurrent read
+  release(); await new Promise((r) => setImmediate(r))
+  await clock.advance(30_000)
+  assert.deepEqual(calls, [1, 2, 3]) // re-read after the turn end, polled while busy, then idle
+  assert.deepEqual(updater.following(), [])
+})
+
+test('auto-updater fixes the language when a follow starts and persists the last viewed one', async () => {
+  const { createAutoUpdater } = await import('../lib/autoupdate.js')
+  const clock = fakeTime()
+  const langs = []
+  const saved = []
+  const updater = createAutoUpdater({ read: async (id, lang) => { langs.push(lang); return { pending: langs.length < 3 ? 1 : 0 } }, defaultLang: () => 'en', onLangViewed: (l) => saved.push(l), ...clock })
+  updater.onSessionEvent({ id: 'fresh', header: {} }, { type: 'turn/end' })
+  await clock.advance(2_000)
+  updater.noteView('other', 'zh') // switching language elsewhere mid-follow
+  await clock.advance(30_000)
+  assert.deepEqual(langs, ['en', 'en', 'en'])
+  assert.deepEqual(saved, ['zh'])
+})
+
+test('auto-updater language: last viewed for the session, else the stored cache, else the last viewed anywhere', async () => {
+  const { createAutoUpdater } = await import('../lib/autoupdate.js')
+  const clock = fakeTime()
+  const langs = []
+  const updater = createAutoUpdater({ read: async (id, lang) => { langs.push([id, lang]); return {} }, storedLang: async (id) => (id === 'cached-en' ? 'en' : undefined), ...clock })
+  updater.noteView('viewed', 'en')
+  updater.noteView('viewed', 'xx-junk') // normalized: zh
+  updater.noteView('other', 'en')
+  for (const id of ['viewed', 'cached-en', 'fresh']) updater.onSessionEvent({ id, header: {} }, { type: 'turn/end' })
+  await clock.advance(5_000)
+  assert.deepEqual(langs.sort(), [['cached-en', 'en'], ['fresh', 'en'], ['viewed', 'zh']])
+})
+
+test('auto-updater dispose stops timers and in-flight follow-ups', async () => {
+  const { createAutoUpdater } = await import('../lib/autoupdate.js')
+  const clock = fakeTime()
+  let reads = 0
+  const updater = createAutoUpdater({ read: async () => { reads++; return { pending: 1 } }, ...clock })
+  updater.onSessionEvent({ id: 's1', header: {} }, { type: 'turn/end' })
+  await clock.advance(2_000)
+  updater.dispose()
+  await clock.advance(60_000)
+  assert.equal(reads, 1)
+  assert.equal(clock.pending(), 0)
+  updater.onSessionEvent({ id: 's1', header: {} }, { type: 'turn/end' })
+  assert.equal(clock.pending(), 0)
+})
+
+test('reader reports retrying failures; a failure next to a success, or several at once, are retried by the next reads', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sj-'))
+  try {
+    const store = createSummaryStore(dir)
+    let t = 0
+    let failing = new Set([1, 3])
+    const complete = async (system, user) => {
+      if (system.includes('整理员')) return '{"items":[{"title":"T","turns":[1,2,3],"status":"done","result":"r"}],"now":"n","waiting":""}'
+      const turn = Number(user.match(/第 (\d+) 轮，共/)?.[1])
+      if (failing.has(turn)) throw new Error('timeout')
+      return '{"segments":[{"kind":"discuss","from":1,"to":1}],"decisions":[],"open":[]}'
+    }
+    const summarizer = createSummarizer({ complete, store, now: () => t })
+    const b = log()
+    for (const n of [1, 2, 3]) b.turn(n, `ask ${n}`, (x) => x.step('s'))
+    const read = createJournalReader({ readEvents: async () => b.events, store, summarizer, now: () => t })
+    const settle = () => new Promise((r) => setTimeout(r, 40))
+    let j = await read('s1', 'zh', { fresh: true }); await settle()
+    j = await read('s1', 'zh', { fresh: true })
+    assert.equal(j.retrying, 2) // turns 1 and 3 failed; turn 2 succeeded
+    assert.equal(j.outlining, false) // outline waits for every summary
+    failing = new Set()
+    t += 61_000 // back-off over
+    j = await read('s1', 'zh', { fresh: true }); await settle()
+    j = await read('s1', 'zh', { fresh: true }); await settle()
+    j = await read('s1', 'zh', { fresh: true })
+    assert.equal(j.retrying, 0)
+    assert.ok(j.outlineAt !== undefined, 'outline done after the retries')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a finished turn with no steps does not block the outline', () => {
+  const facts = { turns: [{ turn: 1, end: 5, steps: [{}] }, { turn: 2, end: 9, steps: [] }] }
+  assert.match(outlineBasis(facts, { 1: { at: 1 } }), /^v\d+\|1:1:1$/)
+})
+
+test('summarizer dispose drops queued work and stops writing', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sj-'))
+  try {
+    const store = createSummaryStore(dir)
+    let release
+    const gate = new Promise((r) => { release = r })
+    let signals = []
+    const complete = async (system, user, opts) => { signals.push(opts.signal); await gate; return '{"segments":[{"kind":"discuss","from":1,"to":1}],"decisions":[],"open":[]}' }
+    const summarizer = createSummarizer({ complete, store, concurrency: 1 })
+    const b = log()
+    for (const n of [1, 2, 3]) b.turn(n, `ask ${n}`, (x) => x.step('s'))
+    summarizer.enqueue('s1', collect(b.events).turns, {})
+    await new Promise((r) => setTimeout(r, 10))
+    summarizer.dispose()
+    assert.equal(signals.length, 1)
+    assert.equal(signals[0].aborted, true)
+    release()
+    await new Promise((r) => setTimeout(r, 30))
+    assert.deepEqual(await store.get('s1'), {})
+    assert.equal(summarizer.enqueue('s1', collect(b.events).turns, {}), 0)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('reader with fresh: true bypasses the short facts cache', async () => {
+  let reads = 0
+  const read = createJournalReader({ readEvents: async () => { reads++; return log().turn(1, 'a', (t) => t.step('x')).events }, store: { get: async () => ({}), getOutline: async () => undefined } })
+  await read('s1'); await read('s1')
+  assert.equal(reads, 1)
+  await read('s1', undefined, { fresh: true })
+  assert.equal(reads, 2)
+})

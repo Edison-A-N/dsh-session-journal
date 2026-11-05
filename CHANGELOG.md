@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 (2026-11-05)
+
+- The journal updates itself when a turn ends: the finished turn is
+  summarized and the work items are regrouped in the background, so the
+  panel is current when opened. Only the session whose turn ended is
+  touched, in one summary language; subagent and teammate sessions are
+  skipped. The session is followed until nothing is left to do, so failed
+  summaries are retried and an outline overtaken by a newer summary is
+  redone.
+- A finished turn with no steps no longer blocks the outline.
+- Unloading or replacing the plugin stops its queued model calls.
+
 ## 0.1.2 (2026-11-05)
 
 - Work item cards start collapsed; click a card to expand it.
