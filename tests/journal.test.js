@@ -23,7 +23,7 @@ function log() {
     turn(n, user, build, outcome = 'completed') {
       push('turn/start', { turn: n })
       push('user/message', { content: [{ type: 'text', text: user }], source: { kind: 'user' } })
-      push('user/message', { content: [{ type: 'text', text: 'memory blob' }], source: { kind: 'memory' } })
+      push('user/message', { content: [{ type: 'text', text: 'injected context' }], source: { kind: 'runtime' } })
       let step = 0
       build({
         step(text, calls = []) {
@@ -55,8 +55,8 @@ test('lineDelta counts only changed lines', () => {
 })
 
 test('TEST_COMMAND matches test runs, not reads of test files', () => {
-  for (const cmd of ['node --test tests/*.test.js', 'pnpm test', 'npm run e2e', 'cd /tmp && timeout 120 node ui-check.mjs', './scripts/smoke.sh', 'pytest -q', 'bash scripts/doctor.sh']) assert.ok(TEST_COMMAND.test(cmd), cmd)
-  for (const cmd of ['head -40 /tmp/ui-check.mjs', 'ls tests', 'cat tests/a.test.js', 'git status']) assert.ok(!TEST_COMMAND.test(cmd), cmd)
+  for (const cmd of ['node --test tests/*.test.js', 'pnpm test', 'npm run e2e', 'node e2e/checkout.e2e.mjs', './run-tests.sh', 'pytest -q', 'python3 tools/verify_schema.py']) assert.ok(TEST_COMMAND.test(cmd), cmd)
+  for (const cmd of ['head -40 e2e/checkout.e2e.mjs', 'ls tests', 'cat tests/a.test.js', 'git status']) assert.ok(!TEST_COMMAND.test(cmd), cmd)
 })
 
 test('collect keeps only what the user typed and tallies edits and tests', () => {
@@ -101,7 +101,7 @@ test('a user message queued before its turn starts still lands on that turn', ()
 
 test('reviews are detected from review skills and review-like delegations', () => {
   const { events } = log().turn(1, '审一下', (t) => {
-    t.step('a', [{ name: 'skill', args: { name: 'critical-review' } }])
+    t.step('a', [{ name: 'skill', args: { name: 'code-review' } }])
     t.step('b', [{ name: 'subagent', args: { description: 'Independent code review', prompt: '...' } }])
     t.step('c', [{ name: 'subagent', args: { description: 'Port the parser', prompt: 'write code' } }])
   })
@@ -120,7 +120,7 @@ test('rule segments: tests before the last edit are part of implementing, edits 
       t.step('done')
     })
     .turn(2, '审', (t) => {
-      t.step('rev', [{ name: 'skill', args: { name: 'critical-review' } }])
+      t.step('rev', [{ name: 'skill', args: { name: 'code-review' } }])
       t.step('fix', [edit('/w/a.js', 'c', 'd')])
     })
   const facts = collect(events)
@@ -142,10 +142,10 @@ test('buildJournal numbers repeated phases and merges adjacent equal ones across
   const b = log()
   b.turn(1, '需求是这样', (t) => t.step('明白'))
   b.turn(2, '那就做', (t) => t.step('e', [edit('/w/a.js', 'a', 'b')]))
-  b.turn(3, '审一下', (t) => t.step('r', [{ name: 'skill', args: { name: 'critical-review' } }]))
+  b.turn(3, '审一下', (t) => t.step('r', [{ name: 'skill', args: { name: 'code-review' } }]))
   b.turn(4, '改', (t) => t.step('f', [edit('/w/a.js', 'b', 'c')]))
-  b.turn(5, '再审', (t) => t.step('r', [{ name: 'skill', args: { name: 'critical-review' } }]))
-  b.turn(6, '再审一轮', (t) => t.step('r', [{ name: 'skill', args: { name: 'critical-review' } }]))
+  b.turn(5, '再审', (t) => t.step('r', [{ name: 'skill', args: { name: 'code-review' } }]))
+  b.turn(6, '再审一轮', (t) => t.step('r', [{ name: 'skill', args: { name: 'code-review' } }]))
   const journal = buildJournal(collect(b.events))
   assert.deepEqual(journal.phases.map((p) => [p.kind, p.round ?? null, p.turns]), [
     ['discuss', null, [1, 1]],
@@ -430,19 +430,19 @@ test('summarizer computes an outline once per basis', async () => {
 
 test('turnLog gives every turn a one-line plain-text request and no reply text', () => {
   const b = log()
-  b.turn(1, '旧变量能删吗', (t) => t.step('可以。**1. 旧的 `OLD_*` 变量**（见 [settings.py:10](x/settings.py#L10)）\n- 第二点'))
+  b.turn(1, '把 README 翻成英文', (t) => t.step('好的。**1. 标题** 已翻译（见 [README.md:1](README.md#L1)）\n- 第二段'))
   const journal = buildJournal(collect(b.events))
-  assert.deepEqual(journal.turnLog.map((t) => [t.turn, t.user]), [[1, '旧变量能删吗']])
+  assert.deepEqual(journal.turnLog.map((t) => [t.turn, t.user]), [[1, '把 README 翻成英文']])
   assert.equal(journal.turnLog[0].reply, undefined)
 })
 
 test('parseReply keeps the cleaned-up ask, and the outline prompt prefers it over the raw message', () => {
-  const s = parseReply('{"ask":"修看板详情","segments":[{"kind":"fix","from":1,"to":1}],"decisions":[],"open":[]}')
-  assert.equal(s.ask, '修看板详情')
-  const facts = collect(log().turn(1, '已完成\n别的会话：要不要换数据库\n第 1 轮\n看板打不开', (t) => t.step('x')).events)
+  const s = parseReply('{"ask":"给按钮换个颜色","segments":[{"kind":"fix","from":1,"to":1}],"decisions":[],"open":[]}')
+  assert.equal(s.ask, '给按钮换个颜色')
+  const facts = collect(log().turn(1, '已完成\n别的会话：示例待办 A\n第 1 轮\n给按钮换个颜色', (t) => t.step('x')).events)
   const prompt = buildOutlinePrompt(facts, { 1: s })
-  assert.match(prompt, /用户要的是「修看板详情」/)
-  assert.doesNotMatch(prompt, /换数据库/)
+  assert.match(prompt, /用户要的是「给按钮换个颜色」/)
+  assert.doesNotMatch(prompt, /示例待办 A/)
 })
 
 
@@ -763,4 +763,23 @@ test('reader with fresh: true bypasses the short facts cache', async () => {
   assert.equal(reads, 1)
   await read('s1', undefined, { fresh: true })
   assert.equal(reads, 2)
+})
+
+test('tool detection is generic: spawn_* plugins delegate, *_search/*_expand plugin tools look things up', () => {
+  const b = log()
+  b.turn(1, 'look and delegate', (t) => {
+    t.step('s', [{ name: 'notes_search', args: {} }, { name: 'history-expand', args: {} }, { name: 'mcp__wiki__wiki-search', args: {} }])
+    t.step('d', [{ name: 'spawn_helper', args: { description: 'review the diff' } }])
+    t.step('w', [{ name: 'notes_write', args: {} }])
+  })
+  const steps = collect(b.events).turns[0].steps
+  assert.deepEqual(steps.map((s) => s.kind), ['research', 'review', 'other'])
+})
+
+test('lookup detection reads whole words and rejects names that also change things', () => {
+  const kindOf = (name) => collect(log().turn(1, 'x', (t) => t.step('s', [{ name, args: {} }])).events).turns[0].steps[0].kind
+  for (const name of ['notes_search', 'mcp__docs__get_page', 'mcp__gh__searchCode', 'mcp__wiki__wiki-search', 'list_agents', 'get_goal', 'job_list'])
+    assert.equal(kindOf(name), 'research', name)
+  for (const name of ['find_and_replace', 'search_replace', 'get_or_create', 'read_write_file', 'mcp__memory__forget', 'mcp__x__create_widget', 'mcp__x__set_target', 'mcp__x__delete_budget', 'mcp__sheets__update_spreadsheet', 'mcp__slack__reply_to_thread', 'update_goal', 'job_kill', 'schedule_create', 'spawn_process'])
+    assert.equal(kindOf(name), 'other', name)
 })

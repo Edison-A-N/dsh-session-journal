@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 (2026-11-05)
+
+- Tool detection no longer lists plugin tool names. A `spawn_*` agent tool
+  counts as delegation. A plugin or MCP tool counts as a lookup when a word
+  of its name is a lookup verb and no word says it changes something
+  (`notes_search`, `mcp__docs__get_page`; not `find_and_replace`). Read-only
+  DSH tools such as `job_list` and `get_goal` now count as research too.
+- Scripts named `*doctor*` no longer count as test runs.
+- Test fixtures and prompt examples use invented content, or describe this
+  plugin itself.
+
 ## 0.2.0 (2026-11-05)
 
 - The journal updates itself when a turn ends: the finished turn is
