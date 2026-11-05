@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 (2026-11-05)
+
+- Open items no longer include the agent's own follow-up checks ("confirm
+  after the restart"), things the user said are not needed, or corrections to
+  the journal's own records. Summaries and outlines are recomputed once
+  (summary format 3, outline format 3).
+
 ## 0.1.0 (2026-11-05)
 
 First release.
