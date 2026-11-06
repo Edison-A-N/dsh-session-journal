@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 (2026-11-06)
+
+- Work item cards stay put between regroupings. The outline call now gets
+  the previous grouping and keeps its items, titles and order, placing only
+  new turns, unless the old grouping was clearly wrong. Before, every
+  regrouping started from scratch and cards were renamed or reshuffled
+  after each turn.
+
 ## 0.3.0 (2026-11-06)
 
 - One definition of an open item replaces the list of exceptions. Only two

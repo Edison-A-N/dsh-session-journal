@@ -813,3 +813,15 @@ test('in progress is a fact: only the item of the running turn is active', () =>
   running.turn(2, 'b', (t) => t.step('y'), null)
   assert.deepEqual(statusOf(buildJournal(collect(running.events), {}, { outline }).items), { A: 'done', B: 'active' })
 })
+
+test('outline prompt carries the previous grouping so cards stay put', () => {
+  const b = log()
+  b.turn(1, 'a', (t) => t.step('x'))
+  b.turn(2, 'b', (t) => t.step('y'))
+  const facts = collect(b.events)
+  assert.doesNotMatch(buildOutlinePrompt(facts, {}), /上次的分组/)
+  const previous = { items: [{ title: 'Login page', turns: [1, 9] }, { title: 'Gone', turns: [7] }] }
+  const prompt = buildOutlinePrompt(facts, {}, previous)
+  assert.match(prompt, /上次的分组：\n- 「Login page」：第 1 轮$/)
+  assert.match(OUTLINE_PROMPT, /保持它的工作项、标题和顺序/)
+})
