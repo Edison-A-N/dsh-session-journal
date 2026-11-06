@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 (2026-11-06)
+
+- One definition of an open item replaces the list of exceptions. Only two
+  things are open: work the user asked for that the agent has not finished,
+  got wrong or cannot do; and a question the agent asked that the user has
+  not answered. Waiting on others (approvals, replies, deployments, jobs
+  running), the agent's own side remarks and suggestions, things research
+  could not find out, and work handed to another session go into the result
+  instead. `blocked` now means the agent cannot go on or is waiting for the
+  user's answer. Summaries and outlines are recomputed once (format 4).
+
 ## 0.2.2 (2026-11-06)
 
 - Waiting on someone else is no longer an open item. When the user asked

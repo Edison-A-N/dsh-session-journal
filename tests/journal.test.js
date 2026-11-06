@@ -784,7 +784,8 @@ test('lookup detection reads whole words and rejects names that also change thin
     assert.equal(kindOf(name), 'other', name)
 })
 
-test('prompts say that waiting on others after a submit is a result, not an open item', () => {
-  for (const prompt of [OUTLINE_PROMPT, SYSTEM_PROMPT]) assert.match(prompt, /等别人或外部流程的事不算没解决/)
-  assert.match(OUTLINE_PROMPT, /done（已完成：用户要做的这一步做完了，哪怕后面还在等别人审批或回复）/)
+test('prompts define an open item as unfinished requested work or an unanswered question', () => {
+  for (const prompt of [OUTLINE_PROMPT, SYSTEM_PROMPT]) assert.match(prompt, /只有两种事算没解决/)
+  assert.match(OUTLINE_PROMPT, /done（已完成：用户要的做完了，哪怕后面还在等别人审批、回复或任务跑完）/)
+  for (const prompt of [OUTLINE_PROMPT, SYSTEM_PROMPT]) for (const kind of ['等别人或外部流程的', '顺带提的风险', '没查到', '交给别的会话']) assert.ok(prompt.includes(kind), kind)
 })
