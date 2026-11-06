@@ -10,6 +10,10 @@
   could not find out, and work handed to another session go into the result
   instead. `blocked` now means the agent cannot go on or is waiting for the
   user's answer. Summaries and outlines are recomputed once (format 4).
+- "In progress" is a fact, not the model's guess: only the work item
+  holding the turn that is running now is in progress. When the session is
+  stopped, an item the model still called in progress shows as blocked if
+  it has open items and done if it has none.
 
 ## 0.2.2 (2026-11-06)
 

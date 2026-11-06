@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { activityLog, collect, lineDelta, TEST_COMMAND } from '../lib/collector.js'
-import { buildJournal, normalizeSegments, ruleSegments } from '../lib/journal.js'
+import { buildJournal, itemStatus, normalizeSegments, ruleSegments } from '../lib/journal.js'
 import { buildPrompt, contextFor, createSummarizer, parseReply, SUMMARY_VERSION, SYSTEM_PROMPT, withLang } from '../lib/summarizer.js'
 import { buildOutlinePrompt, OUTLINE_PROMPT, outlineBasis, parseOutline } from '../lib/outline.js'
 import { createSummaryStore, normalizeLang, validSessionId } from '../lib/store.js'
@@ -788,4 +788,28 @@ test('prompts define an open item as unfinished requested work or an unanswered 
   for (const prompt of [OUTLINE_PROMPT, SYSTEM_PROMPT]) assert.match(prompt, /只有两种事算没解决/)
   assert.match(OUTLINE_PROMPT, /done（已完成：用户要的做完了，哪怕后面还在等别人审批、回复或任务跑完）/)
   for (const prompt of [OUTLINE_PROMPT, SYSTEM_PROMPT]) for (const kind of ['等别人或外部流程的', '顺带提的风险', '没查到', '交给别的会话']) assert.ok(prompt.includes(kind), kind)
+})
+
+test('in progress is a fact: only the item of the running turn is active', () => {
+  assert.equal(itemStatus('done', true, []), 'active')
+  assert.equal(itemStatus('active', false, []), 'done')
+  assert.equal(itemStatus('active', false, ['ask the user']), 'blocked')
+  assert.equal(itemStatus('blocked', false, ['x']), 'blocked')
+  assert.equal(itemStatus('dropped', false, []), 'dropped')
+  assert.equal(itemStatus(undefined, false, []), 'done')
+  const outline = { version: 1, items: [
+    { title: 'A', goal: '', turns: [1], status: 'active', result: '', decisions: [], open: [] },
+    { title: 'B', goal: '', turns: [2], status: 'active', result: '', decisions: [], open: ['q'] },
+  ] }
+  const statusOf = (items) => Object.fromEntries(items.map((i) => [i.title, i.status]))
+  // Stopped session: the model said both were active; neither is.
+  const stopped = log()
+  stopped.turn(1, 'a', (t) => t.step('x'))
+  stopped.turn(2, 'b', (t) => t.step('y'))
+  assert.deepEqual(statusOf(buildJournal(collect(stopped.events), {}, { outline }).items), { A: 'done', B: 'blocked' })
+  // Running session: only the item of the running turn is active.
+  const running = log()
+  running.turn(1, 'a', (t) => t.step('x'))
+  running.turn(2, 'b', (t) => t.step('y'), null)
+  assert.deepEqual(statusOf(buildJournal(collect(running.events), {}, { outline }).items), { A: 'done', B: 'active' })
 })
