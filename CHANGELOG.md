@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2 (2026-11-06)
+
+- Waiting on someone else is no longer an open item. When the user asked
+  to submit, send, file or hand something off, doing that step completes
+  the work; the approval, reply or deployment that follows goes into the
+  result ("submitted, waiting for approval"). Summaries and outlines are
+  recomputed once (format 4).
+
 ## 0.2.1 (2026-11-05)
 
 - Tool detection no longer lists plugin tool names. A `spawn_*` agent tool

@@ -783,3 +783,8 @@ test('lookup detection reads whole words and rejects names that also change thin
   for (const name of ['find_and_replace', 'search_replace', 'get_or_create', 'read_write_file', 'mcp__memory__forget', 'mcp__x__create_widget', 'mcp__x__set_target', 'mcp__x__delete_budget', 'mcp__sheets__update_spreadsheet', 'mcp__slack__reply_to_thread', 'update_goal', 'job_kill', 'schedule_create', 'spawn_process'])
     assert.equal(kindOf(name), 'other', name)
 })
+
+test('prompts say that waiting on others after a submit is a result, not an open item', () => {
+  for (const prompt of [OUTLINE_PROMPT, SYSTEM_PROMPT]) assert.match(prompt, /等别人或外部流程的事不算没解决/)
+  assert.match(OUTLINE_PROMPT, /done（已完成：用户要做的这一步做完了，哪怕后面还在等别人审批或回复）/)
+})
